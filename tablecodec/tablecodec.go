@@ -43,6 +43,8 @@ const (
 	RecordRowKeyLen       = prefixLen + idLen /*handle*/
 	tablePrefixLength     = 1
 	recordPrefixSepLength = 2
+	//indexPrefixSepLength = 2
+	recordKeyLength = tablePrefixLength + idLen + recordPrefixSepLength + idLen
 )
 
 // TableSplitKeyLen is the length of key 't{table_id}' which is used for table split.
@@ -71,8 +73,32 @@ func EncodeRowKeyWithHandle(tableID int64, handle int64) kv.Key {
 
 // DecodeRecordKey decodes the key and gets the tableID, handle.
 func DecodeRecordKey(key kv.Key) (tableID int64, handle int64, err error) {
-	/* Your code here */
-	return
+	//check key format
+	// 1.recordKey length
+	// 2.has tableprefix
+	// 3.has recordprefix
+	//key[1:9] => tableid , key[11:]=>handle
+
+	//err
+	if len(key) != recordKeyLength {
+		return 0, 0, errInvalidRecordKey.GenWithStack("Invalid record key - %q", key)
+	}
+	if !hasTablePrefix(key) {
+		return 0, 0, errInvalidRecordKey.GenWithStack("Invalid record key (tableprefix error) - %q", key)
+	}
+	if !hasRecordPrefixSep(key[tablePrefixLength+idLen : tablePrefixLength+idLen+recordPrefixSepLength]) {
+		return 0, 0, errInvalidRecordKey.GenWithStack("Invalid record key (recordPrefix error) - %q", key)
+	}
+	_, tableID, err = codec.DecodeInt(key[tablePrefixLength : tablePrefixLength+idLen])
+	if err != nil {
+		return 0, 0, errors.Trace(err)
+	}
+
+	_, handle, err = codec.DecodeInt(key[prefixLen:])
+	if err != nil {
+		return 0, 0, errors.Trace(err)
+	}
+	return tableID, handle, nil
 }
 
 // appendTableIndexPrefix appends table index prefix  "t[tableID]_i".
@@ -94,7 +120,22 @@ func EncodeIndexSeekKey(tableID int64, idxID int64, encodedValue []byte) kv.Key 
 
 // DecodeIndexKeyPrefix decodes the key and gets the tableID, indexID, indexValues.
 func DecodeIndexKeyPrefix(key kv.Key) (tableID int64, indexID int64, indexValues []byte, err error) {
-	/* Your code here */
+	//check key format
+	// 1.has tableprefix
+	// 3.has indexprefix
+	//key[1:9] => tableid , key[11:]=>handle
+	//err
+	if !IsIndexKey(key) {
+		return 0, 0, nil, errInvalidRecordKey.GenWithStack("Invalid index key - %q", key)
+	}
+	if tableID = DecodeTableID(key); tableID == 0 {
+		return 0, 0, nil, errInvalidRecordKey.GenWithStack("error occurred in decode tableid - %q", key)
+	}
+	indexValues, indexID, err = codec.DecodeInt(key[prefixLen:])
+	if err != nil {
+		return 0, 0, nil, errors.Trace(err)
+	}
+
 	return tableID, indexID, indexValues, nil
 }
 
